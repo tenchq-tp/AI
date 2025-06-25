@@ -41,9 +41,9 @@ class Transcription(Base):
 
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
-
-    last_saved_text = Column(Text)
-    current_text = Column(Text)
+    
+    original_text = Column(Text)
+    edited_text = Column(Text)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -31,13 +31,13 @@ def update_transcription(db: Session, transcription_id: UUID, updates: Transcrip
 
     update_data = updates.dict(exclude_unset=True)
 
-    if "current_text" in update_data:
-        if db_obj.current_text is not None:
-            db_obj.last_saved_text = db_obj.current_text
-        db_obj.current_text = update_data["current_text"]
+    if "edited_text" in update_data:
+        if db_obj.edited_text is not None:
+            db_obj.original_text = db_obj.edited_text
+        db_obj.edited_text = update_data["edited_text"]
 
     for key, value in update_data.items():
-        if key != "current_text":  # ข้าม current_text เพราะจัดการแล้วด้านบน
+        if key != "edited_text":  # ข้าม edited_text 
             setattr(db_obj, key, value)
 
     db.commit()

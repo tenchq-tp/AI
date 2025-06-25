@@ -87,8 +87,8 @@ async def upload_audio(
                     channel=channel,
                     start_time=seg["start"],
                     end_time=seg["end"],
-                    last_saved_text=seg["text"],
-                    current_text=seg["text"]
+                    original_text=seg["text"],
+                    edited_text=seg["text"]
                 )
                 crud_transcription.create_transcription(db, transcription_in)
 
@@ -171,8 +171,8 @@ async def upload_zip_audio(
                                 channel=channel,
                                 start_time=seg["start"],
                                 end_time=seg["end"],
-                                last_saved_text=seg["text"],
-                                current_text=seg["text"]
+                                original_text=seg["text"],
+                                edited_text=seg["text"]
                             )
                             crud_transcription.create_transcription(db, transcription_in)
 
