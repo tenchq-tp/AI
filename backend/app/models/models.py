@@ -10,6 +10,9 @@ class Project(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     description = Column(Text)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     audio_files = relationship("AudioFile", back_populates="project", cascade="all, delete")
 
@@ -22,7 +25,9 @@ class AudioFile(Base):
     duration_seconds = Column(Float)
     channel_agent_path = Column(Text)
     channel_customer_path = Column(Text)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     project = relationship("Project", back_populates="audio_files")
     transcriptions = relationship("Transcription", back_populates="audio_file", cascade="all, delete")

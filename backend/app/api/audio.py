@@ -1,11 +1,12 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from app.core.audio_utils import split_and_convert_audio
 from app.core.ws_transcribe import transcribe_audio_via_ws
-from app.schemas.audio import AudioFileResponse, AudioFileCreate
+from app.schemas.audio import AudioFileResponse, AudioFileCreate, JustAudioFileResponse
 from app.crud import crud_audio, crud_transcription
 from app.db.db import get_db
 from sqlalchemy.orm import Session
-from app.models.models import Project
+from sqlalchemy import func
+from app.models.models import Project, Transcription
 import shutil, os
 from uuid import uuid4
 from pydub.utils import mediainfo
@@ -13,6 +14,7 @@ from app.schemas.transcription import TranscriptionCreate
 from typing import List
 import zipfile
 import tempfile
+from uuid import UUID
 
 router = APIRouter()
 
@@ -177,3 +179,53 @@ async def upload_zip_audio(
                     results.append(db_audio)
 
     return results
+
+@router.get("/", response_model=List[JustAudioFileResponse])
+def read_audio_files(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    audio_files = crud_audio.get_audio_files(db, skip=skip, limit=limit)
+    results = []
+
+    for audio in audio_files:
+        # หาวันเวลาล่าสุดจาก transcription
+        last_updated = db.query(func.max(Transcription.updated_at)) \
+            .filter(Transcription.audio_id == audio.id) \
+            .scalar()
+
+        results.append(JustAudioFileResponse(
+            id=audio.id,
+            project_id=audio.project_id,
+            filename=audio.filename,
+            file_path=audio.file_path,
+            duration_seconds=audio.duration_seconds,
+            channel_agent_path=audio.channel_agent_path,
+            channel_customer_path=audio.channel_customer_path,
+            created_at=audio.created_at,
+            updated_at=last_updated or audio.updated_at,  # fallback ถ้าไม่มี transcription
+            transcriptions=audio.transcriptions,
+        ))
+
+    return results
+
+@router.get("/{audio_id}", response_model=JustAudioFileResponse)
+def read_audio_file(audio_id: UUID, db: Session = Depends(get_db)):
+    audio = crud_audio.get_audio_file(db, audio_id)
+    if not audio:
+        raise HTTPException(status_code=404, detail="AudioFile not found")
+
+    # หาวันเวลาล่าสุดจาก transcription
+    last_updated = db.query(func.max(Transcription.updated_at)) \
+        .filter(Transcription.audio_id == audio.id) \
+        .scalar()
+
+    return JustAudioFileResponse(
+        id=audio.id,
+        project_id=audio.project_id,
+        filename=audio.filename,
+        file_path=audio.file_path,
+        duration_seconds=audio.duration_seconds,
+        channel_agent_path=audio.channel_agent_path,
+        channel_customer_path=audio.channel_customer_path,
+        created_at=audio.created_at,
+        updated_at=last_updated or audio.updated_at,
+        transcriptions=audio.transcriptions,
+    )

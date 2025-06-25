@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from uuid import UUID
+from typing import Optional
 
 from app.models.models import Transcription
 from app.schemas.transcription import (
@@ -17,15 +18,32 @@ def create_transcription(db: Session, transcription: TranscriptionCreate):
 def get_transcription(db: Session, transcription_id: UUID):
     return db.query(Transcription).filter(Transcription.id == transcription_id).first()
 
+def get_transcriptions_by_audio_and_channel(db: Session, audio_id: UUID, channel: Optional[str]):
+    query = db.query(Transcription).filter(Transcription.audio_id == audio_id)
+    if channel:
+        query = query.filter(Transcription.channel == channel)
+    return query.order_by(Transcription.start_time).all()
+
 def update_transcription(db: Session, transcription_id: UUID, updates: TranscriptionUpdate):
     db_obj = get_transcription(db, transcription_id)
     if not db_obj:
         return None
-    for key, value in updates.dict(exclude_unset=True).items():
-        setattr(db_obj, key, value)
+
+    update_data = updates.dict(exclude_unset=True)
+
+    if "current_text" in update_data:
+        if db_obj.current_text is not None:
+            db_obj.last_saved_text = db_obj.current_text
+        db_obj.current_text = update_data["current_text"]
+
+    for key, value in update_data.items():
+        if key != "current_text":  # ข้าม current_text เพราะจัดการแล้วด้านบน
+            setattr(db_obj, key, value)
+
     db.commit()
     db.refresh(db_obj)
     return db_obj
+
 
 def delete_transcription(db: Session, transcription_id: UUID):
     obj = get_transcription(db, transcription_id)
