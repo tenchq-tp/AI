@@ -4,6 +4,7 @@ from sqlalchemy import func
 from uuid import UUID
 from typing import List
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
+from app.schemas.audio import AudioFileResponseForProject
 from app.crud import crud_project
 from app.db.db import get_db
 from app.models.models import Transcription
@@ -25,13 +26,9 @@ def read_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
     results = []
 
     for project in projects:
-        # 1. นับจำนวน AudioFiles
         audio_file_count = len(project.audio_files)
-
-        # 2. เอา created_at จาก project โดยตรง
         created_at = project.created_at
 
-        # 3. หา updated_at ล่าสุดจาก Transcription ที่เกี่ยวกับ AudioFile ของโปรเจกต์นี้
         audio_ids = [a.id for a in project.audio_files]
         last_updated = None
         if audio_ids:
@@ -39,13 +36,19 @@ def read_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
                 .filter(Transcription.audio_id.in_(audio_ids)) \
                 .scalar()
 
+        # สร้าง list ของ AudioFileResponseForProject จาก project.audio_files
+        audio_files_response = [
+            AudioFileResponseForProject.from_orm(audio) for audio in project.audio_files
+        ]
+
         results.append(ProjectResponse(
             id=project.id,
             name=project.name,
             description=project.description,
             audio_file_count=audio_file_count,
             created_at=created_at,
-            last_transcription_updated_at=last_updated
+            last_transcription_updated_at=last_updated,
+            audio_files=audio_files_response
         ))
 
     return results
@@ -66,13 +69,18 @@ def read_project(project_id: UUID, db: Session = Depends(get_db)):
             .filter(Transcription.audio_id.in_(audio_ids)) \
             .scalar()
 
+    audio_files_response = [
+        AudioFileResponseForProject.from_orm(audio) for audio in project.audio_files
+    ]
+
     return ProjectResponse(
         id=project.id,
         name=project.name,
         description=project.description,
         audio_file_count=audio_file_count,
         created_at=created_at,
-        last_transcription_updated_at=last_updated
+        last_transcription_updated_at=last_updated,
+        audio_files=audio_files_response
     )
     
 @router.put("/{project_id}", response_model=ProjectResponse)

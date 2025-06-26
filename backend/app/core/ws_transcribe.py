@@ -19,7 +19,7 @@ async def transcribe_audio_via_ws(audio_path: str) -> dict:
                 with open(audio_path, 'rb') as f:
                     while chunk := f.read(CHUNK_SIZE):
                         await websocket.send(chunk)
-                        print("✅ Sent audio chunk")
+                        # print("✅ Sent audio chunk")
                 await websocket.send("eof")
                 print("✅ Sent EOF")
 

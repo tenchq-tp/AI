@@ -9,4 +9,5 @@ pydub
 ffmpeg-python
 python-multipart
 websockets
+boto3
 

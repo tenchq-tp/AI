@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from uuid import UUID
 from typing import Optional
 from datetime import datetime
+from app.schemas.audio import AudioFileResponseForProject
 
 class ProjectBase(BaseModel):
     name: str
@@ -21,6 +22,7 @@ class ProjectResponse(BaseModel):
     audio_file_count: Optional[int] = None
     created_at: Optional[datetime] = None
     last_transcription_updated_at: Optional[datetime] = None
+    audio_files: Optional[list[AudioFileResponseForProject]] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True

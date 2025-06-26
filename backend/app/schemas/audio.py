@@ -19,7 +19,7 @@ class AudioFileResponse(AudioFileCreate):
     updated_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         
 class JustAudioFileResponse(BaseModel):
     id: UUID
@@ -33,4 +33,14 @@ class JustAudioFileResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+        
+class AudioFileResponseForProject(BaseModel):
+    id: UUID
+    filename: str
+    duration_seconds: Optional[float]
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
