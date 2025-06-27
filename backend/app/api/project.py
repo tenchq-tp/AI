@@ -100,5 +100,7 @@ def delete_project(project_id: UUID, db: Session = Depends(get_db)):
     # ลบโฟลเดอร์บน S3 ก่อน
     s3_prefix = f"{db_project.name}/"
     delete_s3_folder(s3_prefix)
+    
+    db_project = crud_project.delete_project(db, project_id)
 
     return db_project
