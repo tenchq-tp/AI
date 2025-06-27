@@ -43,27 +43,21 @@ s3_client = boto3.client(
     region_name="NCP-TH",
 )
 
-def upload_file_to_s3(file_path: str, s3_key: str) -> bool:
+def upload_file_to_s3(file_data: bytes, s3_key: str, filename: str) -> bool:
     try:
-        if not os.path.isfile(file_path):
-            print(f"❌ File not found: {file_path}")
-            return False
+        content_length = len(file_data)
 
-        with open(file_path, "rb") as f:
-            data = f.read()
-        content_length = len(data)
-
-        # 👇 ตรวจสอบ mime type จากนามสกุลไฟล์
-        content_type, _ = mimetypes.guess_type(file_path)
+        # ตรวจสอบ mime type จากชื่อไฟล์
+        content_type, _ = mimetypes.guess_type(filename)
         if not content_type:
-            content_type = "application/octet-stream"  # fallback
+            content_type = "application/octet-stream"
 
-        print(f"📦 Uploading {file_path} → {s3_key} ({content_length} bytes, type: {content_type})")
+        print(f"📦 Uploading → {s3_key} ({content_length} bytes, type: {content_type})")
 
         s3_client.put_object(
             Bucket="asr",
             Key=s3_key,
-            Body=data,
+            Body=file_data,
             ContentLength=content_length,
             ContentType=content_type
         )
@@ -87,4 +81,15 @@ def delete_s3_folder(s3_prefix: str):
     except ClientError as e:
         print(f"❌ Failed to delete from S3: {e}")
     
-    
+def generate_presigned_url(s3_key: str, expires_in: int = 36000) -> str:
+    try:
+        url = s3_client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": "asr", "Key": s3_key},
+            ExpiresIn=expires_in
+        )
+        return url
+    except Exception as e:
+        print(f"❌ Failed to generate presigned URL: {e}")
+        return ""
+ 
