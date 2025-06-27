@@ -15,3 +15,7 @@ def create_audio_file(db: Session, audio: AudioFileCreate) -> AudioFile:
     db.commit()
     db.refresh(db_audio)
     return db_audio
+
+def delete_audio_file(db: Session, audio_id: int):
+    db.query(AudioFile).filter(AudioFile.id == audio_id).delete()
+    db.commit()

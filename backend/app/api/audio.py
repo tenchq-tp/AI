@@ -1,12 +1,12 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from app.core.audio_utils import split_and_convert_audio
 from app.core.ws_transcribe import transcribe_audio_via_ws
-from app.schemas.audio import AudioFileResponse, AudioFileCreate, JustAudioFileResponse
+from app.schemas.audio import AudioFileResponse, AudioFileCreate
 from app.crud import crud_audio, crud_transcription
 from app.db.db import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from app.models.models import Project, Transcription
+from app.models.models import Project, Transcription, AudioFile
 import shutil, os
 from uuid import uuid4
 from pydub.utils import mediainfo
@@ -16,6 +16,7 @@ import zipfile
 import tempfile
 from uuid import UUID
 from app.core.config import upload_file_to_s3
+from app.core.config import delete_s3_folder
 
 
 router = APIRouter()
@@ -187,7 +188,7 @@ async def upload_zip_audio(
 
     return results
 
-@router.get("/", response_model=List[JustAudioFileResponse])
+@router.get("/", response_model=List[AudioFileResponse])
 def read_audio_files(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     audio_files = crud_audio.get_audio_files(db, skip=skip, limit=limit)
     results = []
@@ -198,7 +199,7 @@ def read_audio_files(skip: int = 0, limit: int = 100, db: Session = Depends(get_
             .filter(Transcription.audio_id == audio.id) \
             .scalar()
 
-        results.append(JustAudioFileResponse(
+        results.append(AudioFileResponse(
             id=audio.id,
             project_id=audio.project_id,
             filename=audio.filename,
@@ -213,7 +214,7 @@ def read_audio_files(skip: int = 0, limit: int = 100, db: Session = Depends(get_
 
     return results
 
-@router.get("/{audio_id}", response_model=JustAudioFileResponse)
+@router.get("/{audio_id}", response_model=AudioFileResponse)
 def read_audio_file(audio_id: UUID, db: Session = Depends(get_db)):
     audio = crud_audio.get_audio_file(db, audio_id)
     if not audio:
@@ -224,7 +225,7 @@ def read_audio_file(audio_id: UUID, db: Session = Depends(get_db)):
         .filter(Transcription.audio_id == audio.id) \
         .scalar()
 
-    return JustAudioFileResponse(
+    return AudioFileResponse(
         id=audio.id,
         project_id=audio.project_id,
         filename=audio.filename,
@@ -236,3 +237,25 @@ def read_audio_file(audio_id: UUID, db: Session = Depends(get_db)):
         updated_at=last_updated or audio.updated_at,
         transcriptions=audio.transcriptions,
     )
+
+@router.delete("/audio/{audio_id}")
+def delete_audio(audio_id: UUID, db: Session = Depends(get_db)):
+    db_audio = db.query(AudioFile).filter(AudioFile.id == audio_id).first()
+    if not db_audio:
+        raise HTTPException(status_code=404, detail="Audio not found")
+
+    # ดึงข้อมูลที่จำเป็น
+    project_name = db_audio.project.name
+    filename = os.path.splitext(db_audio.filename)[0]
+    s3_folder_prefix = f"{project_name}/{filename}/"
+
+    # 1️⃣ ลบจาก transcription ก่อน (foreign key)
+    crud_transcription.delete_transcriptions_by_audio_id(db, audio_id)
+
+    # 2️⃣ ลบข้อมูล AudioFile ออกจาก DB
+    crud_audio.delete_audio_file(db, audio_id)
+
+    # 3️⃣ ลบจาก S3
+    delete_s3_folder(s3_folder_prefix)
+
+    return {"detail": f"Audio ID {audio_id} and related files deleted successfully."}

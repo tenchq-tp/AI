@@ -45,10 +45,8 @@ def update_transcription(db: Session, transcription_id: UUID, updates: Transcrip
     return db_obj
 
 
-def delete_transcription(db: Session, transcription_id: UUID):
-    obj = get_transcription(db, transcription_id)
-    if obj:
-        db.delete(obj)
-        db.commit()
-    return obj
+def delete_transcriptions_by_audio_id(db: Session, audio_id: int):
+    db.query(Transcription).filter(Transcription.audio_id == audio_id).delete()
+    db.commit()
+
 

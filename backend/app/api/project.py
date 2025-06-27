@@ -8,6 +8,7 @@ from app.schemas.audio import AudioFileResponseForProject
 from app.crud import crud_project
 from app.db.db import get_db
 from app.models.models import Transcription
+from app.core.config import delete_s3_folder
 
 router = APIRouter()
 
@@ -92,7 +93,12 @@ def update_project(project_id: UUID, project: ProjectUpdate, db: Session = Depen
 
 @router.delete("/{project_id}", response_model=ProjectResponse)
 def delete_project(project_id: UUID, db: Session = Depends(get_db)):
-    db_project = crud_project.delete_project(db, project_id)
+    db_project = crud_project.get_project_by_id(db, project_id)
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # ลบโฟลเดอร์บน S3 ก่อน
+    s3_prefix = f"{db_project.name}/"
+    delete_s3_folder(s3_prefix)
+
     return db_project

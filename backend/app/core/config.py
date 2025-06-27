@@ -3,7 +3,7 @@ from urllib.parse import quote_plus
 import boto3, os
 import mimetypes
 from botocore.client import Config
-from io import BytesIO
+from botocore.exceptions import ClientError
 
 
 class Settings(BaseSettings):
@@ -75,6 +75,16 @@ def upload_file_to_s3(file_path: str, s3_key: str) -> bool:
         print(f"❌ Upload failed: {e}")
         return False
 
-
+def delete_s3_folder(s3_prefix: str):
+    try:
+        response = s3_client.list_objects_v2(Bucket="asr", Prefix=s3_prefix)
+        if "Contents" in response:
+            for obj in response["Contents"]:
+                s3_client.delete_object(Bucket="asr", Key=obj["Key"])
+                print(f"🗑️ Deleted from S3: {obj['Key']}")
+        else:
+            print("ℹ️ No files found to delete in S3.")
+    except ClientError as e:
+        print(f"❌ Failed to delete from S3: {e}")
     
     

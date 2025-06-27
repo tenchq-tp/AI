@@ -21,19 +21,19 @@ class AudioFileResponse(AudioFileCreate):
     class Config:
         from_attributes = True
         
-class JustAudioFileResponse(BaseModel):
-    id: UUID
-    project_id: UUID
-    filename: str
-    file_path: str
-    duration_seconds: Optional[float]
-    channel_agent_path: Optional[str]
-    channel_customer_path: Optional[str]
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+# class JustAudioFileResponse(BaseModel):
+#     id: UUID
+#     project_id: UUID
+#     filename: str
+#     file_path: str
+#     duration_seconds: Optional[float]
+#     channel_agent_path: Optional[str]
+#     channel_customer_path: Optional[str]
+#     created_at: datetime
+#     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+#     class Config:
+#         from_attributes = True
         
 class AudioFileResponseForProject(BaseModel):
     id: UUID
