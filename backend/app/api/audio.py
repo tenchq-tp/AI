@@ -11,7 +11,7 @@ import shutil, os
 from uuid import uuid4
 from pydub.utils import mediainfo
 from app.schemas.transcription import TranscriptionCreate
-from typing import List
+from typing import List, Optional
 import zipfile
 import tempfile
 from uuid import UUID
@@ -19,68 +19,46 @@ from app.core.config import upload_file_to_s3, delete_s3_folder, generate_presig
 
 router = APIRouter()
 
-@router.post("/upload-audio/", response_model=List[AudioFileResponse])
-async def upload_audio(
-    files: List[UploadFile] = File(...),
-    project_name: str = Form(...),
-    db: Session = Depends(get_db)
-):
+async def process_mp3_file(mp3_path, filename, project, project_name, base_folder, db):
     results = []
+    base_filename = os.path.splitext(filename)[0]
+    s3_base_path = f"{project_name}/{base_folder}"
 
-    project = db.query(Project).filter(Project.name == project_name).first()
-    if not project:
-        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+    # Upload mp3 to S3
+    with open(mp3_path, "rb") as f:
+        mp3_data = f.read()
+    mp3_key = f"{s3_base_path}/{filename}"
+    upload_file_to_s3(mp3_data, mp3_key, filename)
 
-    for file in files:
-        base_filename = os.path.splitext(file.filename)[0]
-        s3_base_path = f"{project_name}/{base_filename}"
+    # Split and convert
+    with tempfile.TemporaryDirectory() as tempdir:
+        agent_path, customer_path = split_and_convert_audio(mp3_path, tempdir, base_filename)
 
-        # อ่าน mp3 ไฟล์จาก UploadFile เป็น bytes
-        mp3_data = await file.read()
-        mp3_s3_key = f"{s3_base_path}/{file.filename}"
-        upload_file_to_s3(mp3_data, mp3_s3_key, file.filename)
+        with open(agent_path, "rb") as f:
+            agent_data = f.read()
+        with open(customer_path, "rb") as f:
+            customer_data = f.read()
 
-        # เขียน mp3 ไฟล์ชั่วคราวลง disk เพื่อให้ ffmpeg ใช้งานได้
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_mp3:
-            tmp_mp3.write(mp3_data)
-            tmp_mp3_path = tmp_mp3.name
+        agent_key = f"{s3_base_path}/{os.path.basename(agent_path)}"
+        customer_key = f"{s3_base_path}/{os.path.basename(customer_path)}"
+        upload_file_to_s3(agent_data, agent_key, agent_path)
+        upload_file_to_s3(customer_data, customer_key, customer_path)
 
-        # เตรียมโฟลเดอร์ temp สำหรับ wav
-        with tempfile.TemporaryDirectory() as tempdir:
-            # split_and_convert_audio จะต้องรองรับ output ใน tempdir นี้
-            agent_path, customer_path = split_and_convert_audio(
-                tmp_mp3_path, tempdir, base_filename
-            )
-
-            # อ่าน .wav กลับเข้ามาเพื่ออัปโหลด S3
-            with open(agent_path, "rb") as f:
-                agent_data = f.read()
-            with open(customer_path, "rb") as f:
-                customer_data = f.read()
-
-            agent_key = f"{s3_base_path}/{os.path.basename(agent_path)}"
-            customer_key = f"{s3_base_path}/{os.path.basename(customer_path)}"
-
-            upload_file_to_s3(agent_data, agent_key, agent_path)
-            upload_file_to_s3(customer_data, customer_key, customer_path)
-
-        # transcription
+        # Transcription
         agent_trans = await transcribe_audio_via_ws(agent_path)
         customer_trans = await transcribe_audio_via_ws(customer_path)
-
-        duration = float(mediainfo(tmp_mp3_path)["duration"])
+        duration = float(mediainfo(mp3_path)["duration"])
 
         audio_data = AudioFileCreate(
             project_id=project.id,
-            filename=file.filename,
-            file_path=mp3_s3_key,  # เปลี่ยนเป็น key แทน path
+            filename=filename,
+            file_path=mp3_key,
             duration_seconds=duration,
             channel_agent_path=agent_key,
             channel_customer_path=customer_key
         )
         db_audio = crud_audio.create_audio_file(db, audio_data)
 
-        # transcription segments
         for channel, transcription_result in [("agent", agent_trans), ("customer", customer_trans)]:
             for seg in transcription_result.get("text_with_time", []):
                 transcription_in = TranscriptionCreate(
@@ -95,103 +73,57 @@ async def upload_audio(
 
         results.append(db_audio)
 
-        # ลบไฟล์ชั่วคราว mp3
-        os.remove(tmp_mp3_path)
-
     return results
 
-@router.post("/upload-zip-audio/", response_model=List[AudioFileResponse])
-async def upload_zip_audio(
-    zip_file: UploadFile = File(...),
+@router.post("/upload-audio/", response_model=List[AudioFileResponse])
+async def upload_audio(
+    files: Optional[List[UploadFile]] = File(None),
+    zip_file: Optional[UploadFile] = File(None),
     project_name: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    if zip_file and files:
+        raise HTTPException(status_code=400, detail="Provide either 'zip_file' or 'files', not both.")
+    elif not zip_file and not files:
+        raise HTTPException(status_code=400, detail="No audio input provided.")
+
     results = []
 
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, zip_file.filename)
+    # ✅ ZIP FILE PATH
+    if zip_file:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, zip_file.filename)
 
-        # ✅ Save ZIP to temp
-        with open(zip_path, "wb") as f:
-            shutil.copyfileobj(zip_file.file, f)
+            with open(zip_path, "wb") as f:
+                shutil.copyfileobj(zip_file.file, f)
 
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(tmpdir)
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(tmpdir)
 
-        # ✅ Loop through extracted mp3 files
-        for root, _, files in os.walk(tmpdir):
-            for name in files:
-                if name.lower().endswith(".mp3"):
-                    full_path = os.path.join(root, name)
-                    base_folder = os.path.basename(os.path.dirname(full_path))
-                    base_filename = os.path.splitext(name)[0]
-                    s3_base_path = f"{project_name}/{base_folder}"
+            for root, _, file_list in os.walk(tmpdir):
+                for name in file_list:
+                    if name.lower().endswith(".mp3"):
+                        full_path = os.path.join(root, name)
+                        base_folder = os.path.basename(os.path.dirname(full_path))
+                        results.extend(await process_mp3_file(full_path, name, project, project_name, base_folder, db))
 
-                    # อ่าน mp3 ไฟล์
-                    with open(full_path, "rb") as f:
-                        mp3_data = f.read()
-
-                    # อัปโหลดขึ้น S3 ตรงๆ
-                    mp3_key = f"{s3_base_path}/{name}"
-                    upload_file_to_s3(mp3_data, mp3_key, name)
-
-                    # สร้าง temp mp3 สำหรับ ffmpeg
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_mp3:
-                        tmp_mp3.write(mp3_data)
-                        tmp_mp3_path = tmp_mp3.name
-
-                    with tempfile.TemporaryDirectory() as tempdir2:
-                        agent_path, customer_path = split_and_convert_audio(
-                            tmp_mp3_path, tempdir2, base_filename
-                        )
-
-                        # อ่านไฟล์ .wav
-                        with open(agent_path, "rb") as f:
-                            agent_data = f.read()
-                        with open(customer_path, "rb") as f:
-                            customer_data = f.read()
-
-                        agent_key = f"{s3_base_path}/{os.path.basename(agent_path)}"
-                        customer_key = f"{s3_base_path}/{os.path.basename(customer_path)}"
-
-                        upload_file_to_s3(agent_data, agent_key, agent_path)
-                        upload_file_to_s3(customer_data, customer_key, customer_path)
-
-                        agent_trans = await transcribe_audio_via_ws(agent_path)
-                        customer_trans = await transcribe_audio_via_ws(customer_path)
-
-                        duration = float(mediainfo(tmp_mp3_path)["duration"])
-
-                        audio_data = AudioFileCreate(
-                            project_id=project.id,
-                            filename=name,
-                            file_path=mp3_key,
-                            duration_seconds=duration,
-                            channel_agent_path=agent_key,
-                            channel_customer_path=customer_key
-                        )
-                        db_audio = crud_audio.create_audio_file(db, audio_data)
-
-                        for channel, transcription_result in [("agent", agent_trans), ("customer", customer_trans)]:
-                            for seg in transcription_result.get("text_with_time", []):
-                                transcription_in = TranscriptionCreate(
-                                    audio_id=db_audio.id,
-                                    channel=channel,
-                                    start_time=seg["start"],
-                                    end_time=seg["end"],
-                                    original_text=seg["text"],
-                                    edited_text=seg["text"]
-                                )
-                                crud_transcription.create_transcription(db, transcription_in)
-
-                        results.append(db_audio)
-
-                    # ลบ temp mp3
-                    os.remove(tmp_mp3_path)
+    # ✅ INDIVIDUAL MP3 FILES
+    elif files:
+        for file in files:
+            tmp_path = None
+            try:
+                # Save UploadFile to disk
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_mp3:
+                    tmp_mp3.write(await file.read())
+                    tmp_path = tmp_mp3.name
+                results.extend(await process_mp3_file(tmp_path, file.filename, project, project_name, os.path.splitext(file.filename)[0], db))
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
     return results
 
