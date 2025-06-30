@@ -8,7 +8,7 @@ from app.schemas.audio import AudioFileResponseForProject
 from app.crud import crud_project
 from app.db.db import get_db
 from app.models.models import Transcription
-from app.core.config import delete_s3_folder
+from app.core.config import delete_s3_folder, generate_presigned_url
 
 router = APIRouter()
 
@@ -37,10 +37,16 @@ def read_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
                 .filter(Transcription.audio_id.in_(audio_ids)) \
                 .scalar()
 
-        # สร้าง list ของ AudioFileResponseForProject จาก project.audio_files
-        audio_files_response = [
-            AudioFileResponseForProject.from_orm(audio) for audio in project.audio_files
-        ]
+        audio_files_response = []
+        for audio in project.audio_files:
+            audio_files_response.append(AudioFileResponseForProject(
+                id=audio.id,
+                filename=audio.filename,
+                file_path=generate_presigned_url(audio.file_path),
+                duration_seconds=audio.duration_seconds,
+                created_at=audio.created_at,
+                updated_at=audio.updated_at,
+            ))
 
         results.append(ProjectResponse(
             id=project.id,
@@ -70,9 +76,16 @@ def read_project(project_id: UUID, db: Session = Depends(get_db)):
             .filter(Transcription.audio_id.in_(audio_ids)) \
             .scalar()
 
-    audio_files_response = [
-        AudioFileResponseForProject.from_orm(audio) for audio in project.audio_files
-    ]
+    audio_files_response = []
+    for audio in project.audio_files:
+        audio_files_response.append(AudioFileResponseForProject(
+            id=audio.id,
+            filename=audio.filename,
+            file_path=generate_presigned_url(audio.file_path),
+            duration_seconds=audio.duration_seconds,
+            created_at=audio.created_at,
+            updated_at=audio.updated_at,
+        ))
 
     return ProjectResponse(
         id=project.id,
@@ -83,7 +96,7 @@ def read_project(project_id: UUID, db: Session = Depends(get_db)):
         last_transcription_updated_at=last_updated,
         audio_files=audio_files_response
     )
-    
+
 @router.put("/{project_id}", response_model=ProjectResponse)
 def update_project(project_id: UUID, project: ProjectUpdate, db: Session = Depends(get_db)):
     db_project = crud_project.update_project(db, project_id, project)

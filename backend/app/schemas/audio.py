@@ -38,6 +38,7 @@ class AudioFileResponse(AudioFileCreate):
 class AudioFileResponseForProject(BaseModel):
     id: UUID
     filename: str
+    file_path: str
     duration_seconds: Optional[float]
     created_at: datetime
     updated_at: Optional[datetime] = None
